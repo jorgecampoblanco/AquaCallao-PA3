@@ -170,15 +170,8 @@ Las evidencias respaldan los escenarios descritos; no se presentan como pruebas 
 4. La integración documentada relacionó clientes, cargas, entregas y reporte, y comprobó que el rechazo por saldo insuficiente mantuviera los datos esperados.
 5. Comparar el saldo, los movimientos y el reporte permite sustentar la consistencia con resultados observables.
 
-## 11. Pendientes para cerrar la entrega
-
-- Incorporar las validaciones pendientes del procedimiento de entregas y repetir la integración después del cambio.
-- Adjuntar el resultado de la prueba de carga que excede la capacidad.
-- Añadir el enlace funcional al video público de exposición.
-- Conservar las evidencias de participación y seguimiento de clases solicitadas por el docente.
 
 ## 12. Video de exposición
 
 **Video público de YouTube: [PENDIENTE DE INCORPORAR EL ENLACE]**
 
-En la exposición participarán todos los integrantes identificables y con la cámara encendida durante su intervención. Se explicarán el problema, los procedimientos, las decisiones, los resultados de las pruebas y las conclusiones.

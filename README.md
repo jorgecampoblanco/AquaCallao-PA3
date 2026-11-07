@@ -173,5 +173,5 @@ Las evidencias respaldan los escenarios descritos; no se presentan como pruebas 
 
 ## 12. Video de exposición
 
-**Video público de YouTube: [PENDIENTE DE INCORPORAR EL ENLACE]**
+**Video público en youtube: https://youtu.be/Ws4aGwTSg10?si=cvsHDzg4TZfDZj62**
 

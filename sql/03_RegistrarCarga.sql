@@ -7,7 +7,8 @@
    --------------------------------------------------------------------- */
 USE AquaCallao;
 GO
--- 1. Definición del Procedimiento Almacenado
+-- 1. Definición del Procedimiento 
+   
 -- Definimos 3 valores
 CREATE OR ALTER PROCEDURE dbo.usp_RegistrarCarga
     @CisternaID INT,

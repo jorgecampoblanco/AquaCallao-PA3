@@ -1,13 +1,14 @@
-/* =====================================================================
+/* ---------------------------------------------------------------------
    Archivo:       03_RegistrarCarga.sql
    Responsable:   Fernando Álvaro Quispe Trigos
-   Propósito:     Registrar el ingreso de agua a una cisterna aumentando
-                  el saldo e insertando la carga bajo una transacción
-                  explícita, validando operatividad y capacidad física.
-   ===================================================================== */
+   Propósito:     Definición del procedimiento usp_RegistrarCarga y
+                  protocolo de prueba en 3 momentos para evidencia
+                  transaccional (COMMIT y ROLLBACK).
+   --------------------------------------------------------------------- */
 USE AquaCallao;
 GO
-
+-- 1. Definición del Procedimiento Almacenado
+-- Definimos 3 valores
 CREATE OR ALTER PROCEDURE dbo.usp_RegistrarCarga
     @CisternaID INT,
     @ProductoID INT,
@@ -17,7 +18,7 @@ BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
-    -- Validación de parámetro
+    -- Validación preventiva de litros positivos
     IF @Litros <= 0
     BEGIN
         RAISERROR(N'La cantidad de litros a cargar debe ser estrictamente positiva.', 16, 1);
@@ -31,7 +32,7 @@ BEGIN
                 @SaldoActual     INT,
                 @Estado          VARCHAR(12);
 
-        -- Lectura bloqueante (UPDLOCK, ROWLOCK) para evitar condiciones de carrera concurrentes
+        -- Bloqueo de fila para evitar condiciones de carrera (Race Conditions)
         SELECT 
             @CapacidadLitros = CapacidadLitros,
             @SaldoActual     = SaldoLitros,
@@ -39,25 +40,23 @@ BEGIN
         FROM dbo.Cisterna WITH (UPDLOCK, ROWLOCK)
         WHERE CisternaID = @CisternaID;
 
-        -- 1. Validar existencia de la cisterna
+        -- Validaciones de regla de negocio
         IF @CapacidadLitros IS NULL
         BEGIN
             RAISERROR(N'La cisterna especificada (ID: %d) no existe.', 16, 1, @CisternaID);
         END;
 
-        -- 2. Validar estado operativo
         IF @Estado <> 'Operativa'
         BEGIN
             RAISERROR(N'La cisterna %d no está operativa (Estado actual: %s).', 16, 1, @CisternaID, @Estado);
         END;
 
-        -- 3. Validar existencia y estado del producto
         IF NOT EXISTS (SELECT 1 FROM dbo.Producto WHERE ProductoID = @ProductoID AND Activo = 1)
         BEGIN
             RAISERROR(N'El producto especificado (ID: %d) no existe o no está activo.', 16, 1, @ProductoID);
         END;
 
-        -- 4. Validar capacidad física disponible
+        -- Verificación de capacidad física
         IF (@SaldoActual + @Litros) > @CapacidadLitros
         BEGIN
             DECLARE @Disponible INT = @CapacidadLitros - @SaldoActual;
@@ -67,11 +66,11 @@ BEGIN
             );
         END;
 
-        -- 5. Insertar el movimiento de carga (Entrada)
+        -- 1. Insertar el movimiento en el historial
         INSERT INTO dbo.CargaAgua (CisternaID, ProductoID, Litros, FechaCarga)
         VALUES (@CisternaID, @ProductoID, @Litros, SYSDATETIME());
 
-        -- 6. Incrementar el saldo disponible en la cisterna
+        -- 2. Incrementar el saldo disponible
         UPDATE dbo.Cisterna
         SET SaldoLitros = SaldoLitros + @Litros
         WHERE CisternaID = @CisternaID;
@@ -79,7 +78,6 @@ BEGIN
         COMMIT TRANSACTION;
     END TRY
     BEGIN CATCH
-        -- Si ocurre un error, se revierte cualquier cambio pendiente
         IF @@TRANCOUNT > 0
             ROLLBACK TRANSACTION;
 
@@ -88,29 +86,71 @@ BEGIN
 END;
 GO
 
-USE AquaCallao;
+-- 2. Protocolo de Pruebas: 3 Momentos Transaccionales (Caso P2)
+
+PRINT '=====================================================================';
+PRINT 'EVIDENCIA TRANSACCIONAL P2 - Fernando Álvaro Quispe Trigos';
+PRINT '=====================================================================';
+
+
+-- MOMENTO 1: Estado inicial tras inicialización de base de datos
+-- Esperado: Saldo = 0 L, Total cargas = 0
+PRINT '>>> MOMENTO 1: Estado inicial';
+SELECT 
+    '1. ANTES' AS Momento,
+    CisternaID,
+    Placa,
+    CapacidadLitros,
+    SaldoLitros,
+    Estado
+FROM dbo.Cisterna 
+WHERE CisternaID = 1;
+
+SELECT 
+    '1. ANTES' AS Momento,
+    COUNT(*) AS CantidadCargas,
+    ISNULL(SUM(Litros), 0) AS TotalLitrosCargados
+FROM dbo.CargaAgua 
+WHERE CisternaID = 1;
 GO
 
-PRINT '--------------------------------------------------';
-PRINT 'CASO P2: PRUEBA DE CARGA (Fernando Álvaro Quispe Trigos)';
-PRINT '--------------------------------------------------';
+-- MOMENTO 2: Después de la carga válida de 1 000 L (Éxito de COMMIT)
+-- Esperado: Saldo = 1 000 L, Total cargas = 1 (por 1 000 L)
 
--- 1. ESTADO INICIAL
--- La cisterna parte con saldo 0 L y Capacidad de 2 000 L. Sin cargas registradas.
-SELECT 'P2 - ESTADO ANTES (Cisterna)' AS Etapa, CisternaID, Placa, CapacidadLitros, SaldoLitros, Estado 
-FROM dbo.Cisterna WHERE CisternaID = 1;
-
-SELECT 'P2 - ESTADO ANTES (Cargas)' AS Etapa, COUNT(*) AS CantidadCargas 
-FROM dbo.CargaAgua WHERE CisternaID = 1;
-
--- 2. CARGA VÁLIDA: Cargar 1 000 L
+PRINT '>>> Ejecutando Carga Válida (1 000 L)...';
 EXEC dbo.usp_RegistrarCarga 
     @CisternaID = 1, 
     @ProductoID = 1, 
     @Litros     = 1000;
 
--- 3. CARGA INVÁLIDA (EXCEDIDA): Intentar cargar 1 100 L adicionales
--- 1 000 L (actual) + 1 100 L (intento) = 2 100 L > 2 000 L (Capacidad máxima)
+PRINT '>>> MOMENTO 2: Verificación post-COMMIT (Carga válida)';
+
+SELECT 
+    '2. TRAS COMMIT (1 000 L)' AS Momento,
+    CisternaID,
+    Placa,
+    CapacidadLitros,
+    SaldoLitros,
+    Estado
+FROM dbo.Cisterna 
+WHERE CisternaID = 1;
+
+SELECT 
+    '2. TRAS COMMIT (1 000 L)' AS Momento,
+    CargaID,
+    CisternaID,
+    ProductoID,
+    Litros,
+    FechaCarga
+FROM dbo.CargaAgua 
+WHERE CisternaID = 1;
+GO
+
+-- MOMENTO 3: Tras intentar cargar 1 100 L adicionales (Efecto de ROLLBACK)
+-- Regla: 1 000 L (actual) + 1 100 L (intento) = 2 100 L > 2 000 L (Capacidad)
+-- Esperado: Error de capacidad. Se mantiene Saldo = 1 000 L y 1 sola carga.
+   
+PRINT '>>> Intentando Carga Inválida (1 100 L adicionales)...';
 BEGIN TRY
     EXEC dbo.usp_RegistrarCarga 
         @CisternaID = 1, 
@@ -118,14 +158,28 @@ BEGIN TRY
         @Litros     = 1100;
 END TRY
 BEGIN CATCH
-    PRINT CONCAT('Excepción capturada correctamente: ', ERROR_MESSAGE());
+    PRINT CONCAT('Excepción controlada: ', ERROR_MESSAGE());
 END CATCH;
 
--- 4. ESTADO FINAL
--- El saldo debe haberse quedado en 1 000 L y solo debe existir 1 fila en CargaAgua.
-SELECT 'P2 - ESTADO DESPUÉS (Cisterna)' AS Etapa, CisternaID, Placa, CapacidadLitros, SaldoLitros, Estado 
-FROM dbo.Cisterna WHERE CisternaID = 1;
+PRINT '>>> MOMENTO 3: Verificación post-ROLLBACK (Protección de estado)';
 
-SELECT 'P2 - ESTADO DESPUÉS (Cargas)' AS Etapa, CargaID, CisternaID, ProductoID, Litros, FechaCarga 
-FROM dbo.CargaAgua WHERE CisternaID = 1;
+SELECT 
+    '3. TRAS ROLLBACK (Exceso)' AS Momento,
+    CisternaID,
+    Placa,
+    CapacidadLitros,
+    SaldoLitros,
+    Estado
+FROM dbo.Cisterna 
+WHERE CisternaID = 1;
+
+SELECT 
+    '3. TRAS ROLLBACK (Exceso)' AS Momento,
+    CargaID,
+    CisternaID,
+    ProductoID,
+    Litros,
+    FechaCarga
+FROM dbo.CargaAgua 
+WHERE CisternaID = 1;
 GO
